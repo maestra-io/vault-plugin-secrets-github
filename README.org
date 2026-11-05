@@ -13,14 +13,15 @@ CVE-2025-68121, so this fork builds its own.
   toolchain in =.github/workflows/release.yml=, that release workflow (Linux
   binaries, =SHA256SUMS=, image), the drift report and this section.
 - *Versions*: =v<upstream tag>-mb.<n>=, for example =v2.3.2-mb.1=. Vault stores the
-  plugin under this exact string, and the image tag without the =v= must match it.
+  plugin under this exact string. The image tag is the same string without the
+  leading =v=: =2.3.2-mb.1=.
 - *Drift*: the ahead/behind line on the repository page, and the issue titled
   "Upstream drift", refreshed daily.
 - *Rebase*: the default branch takes no force push, so each upstream base gets a
   branch, which then becomes the default:
   #+begin_src sh
   git fetch upstream --tags
-  git switch -c base/v2.3.3 master
+  git switch -c base/v2.3.3 origin/HEAD  # the current default branch, not master
   git rebase --onto v2.3.3 v2.3.2       # drop commits upstream now has
   git push origin base/v2.3.3
   gh repo edit --default-branch base/v2.3.3
@@ -152,6 +153,13 @@ sequenceDiagram
 #+END_COMMENT
 
 * Installation
+#+BEGIN_QUOTE
+NOTE: The upstream links and GPG steps below are upstream's. They give you a build
+without the fix this fork exists for. Take this fork's binaries and =SHA256SUMS=
+from [[https://github.com/maestra-io/vault-plugin-secrets-github/releases][its releases]]. Those sums are not GPG-signed, so check them with
+=shasum -a 256 -c SHA256SUMS= only.
+#+END_QUOTE
+
 To begin plugin installation, either download a [[https://github.com/martinbaillie/vault-plugin-secrets-github/releases][release]] or build
 from source for your chosen OS and architecture.
 
