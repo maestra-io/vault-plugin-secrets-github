@@ -1,0 +1,176 @@
+# Tag v<upstream tag>-mb.<n> publishes the release. A pull request runs everything
+# up to the publish steps. GitHub-hosted runners: this repository is public.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile
+      - '**.go'
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: write # the release
+  id-token: write # nora and the Teleport join
+
+env:
+  NAME: vault-plugin-secrets-github
+  # Go 1.25 is out of support. Closes CVE-2025-68121 of the upstream go1.25.0 build.
+  GO_VERSION: 1.26.10
+  GOTOOLCHAIN: local
+  AWS_REGION: us-east-1 # ecr-public is only callable in us-east-1
+  ECR_REGISTRY: public.ecr.aws/g5f9s8a4
+  ECR_REPOSITORY: vault-plugin-secrets-github
+  TELEPORT_FQDN: teleport.maestra.io:443
+  TELEPORT_TOKEN: image-push-github-actions-vault-plugin-secrets-github
+  AWS_ROLE_ARN: arn:aws:iam::515260921971:role/teleport-image-push
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+            # Vault stores the plugin under the version the binary reports and
+            # pins mounts to the image tag: all three must be this one string.
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mb\.[0-9]+$ ]] \
+              || { echo "::error::tag must be v<upstream tag>-mb.<n>"; exit 1; }
+            git merge-base --is-ancestor "${tag%-mb.*}" HEAD \
+              || { echo "::error::${tag%-mb.*} is not an ancestor of this commit"; exit 1; }
+          else
+            tag="v0.0.0-mb.0"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      # Modules through nora (packages.maestra.io): 3-day hold on new versions.
+      - uses: maestra-io/github-actions/go-nora@be3edebf65de183a5a0c3b02bcc0cd064198cdf5 # v1.62.4
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          module="$(go list -m)"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w \
+              -X ${module}/github.projectName=${NAME} \
+              -X ${module}/github.projectVersion=${TAG} \
+              -X ${module}/github.projectDocs=https://${module} \
+              -X github.com/prometheus/common/version.Version=${TAG#v} \
+              -X github.com/prometheus/common/version.Revision=${GITHUB_SHA}" \
+              -o "dist/${NAME}-linux-${arch}" .
+            grep -qa "$TAG" "dist/${NAME}-linux-${arch}"
+          done
+          (cd dist && sha256sum "${NAME}"-linux-* > SHA256SUMS)
+          go version "dist/${NAME}-linux-amd64"
+          cat dist/SHA256SUMS
+
+      - name: Get Teleport version
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: tp-version
+        run: |
+          VERSION=$(curl -sf "https://${TELEPORT_FQDN}/webapi/find" | jq -r '.auto_update.tools_version // .server_version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: teleport-actions/setup@b638ff596557cc3959eb6b5287d5e58e0c8ac6a6 # v1.1.1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          version: ${{ steps.tp-version.outputs.version }}
+          proxy: ${{ env.TELEPORT_FQDN }}
+
+      - name: Public ECR login via Teleport Workload Identity
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cat > /tmp/tbot.yaml << EOF
+          version: v2
+          proxy_server: ${TELEPORT_FQDN}
+          onboarding:
+            join_method: github
+            token: ${TELEPORT_TOKEN}
+          oneshot: true
+          storage:
+            type: memory
+          services:
+            - type: workload-identity-jwt
+              destination:
+                type: directory
+                path: /tmp/tbot-output
+              selector:
+                name: image-push
+              audiences: ["sts.amazonaws.com"]
+          EOF
+
+          mkdir -p /tmp/tbot-output
+          tbot start -c /tmp/tbot.yaml || true
+          test -f /tmp/tbot-output/jwt_svid
+
+          export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/tbot-output/jwt_svid
+          export AWS_DEFAULT_REGION="${AWS_REGION}"
+          aws ecr-public get-login-password --region "${AWS_REGION}" \
+            | docker login public.ecr.aws --username AWS --password-stdin
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Image tag
+        id: image
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: echo "ref=${ECR_REGISTRY}/${ECR_REPOSITORY}:${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Both platforms to disk first: a failed check leaves no tag in the registry.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          outputs: type=local,dest=image-out
+
+      # The Vault catalog pins the SHA256SUMS value: fail rather than ship an
+      # image whose binary differs from it.
+      - name: Verify image binary sha equals SHA256SUMS
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            want=$(awk -v f="${NAME}-linux-${arch}" '$2==f {print $1}' dist/SHA256SUMS)
+            got=$(sha256sum "image-out/linux_${arch}/usr/local/bin/${NAME}" | awk '{print $1}')
+            echo "${arch}: SHA256SUMS ${want} image ${got}"
+            test -n "$want" && test "$want" = "$got"
+          done
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
+            --notes "Upstream ${TAG%-mb.*} plus \`git log --oneline ${TAG%-mb.*}..${TAG}\`. Built with Go ${GO_VERSION}."
