@@ -59,7 +59,7 @@
             inherit name;
             src = gitignore.lib.gitignoreSource ./.;
             env.CGO_ENABLED = 0;
-            vendorHash = "sha256-YELxGfVh2XVt7DXeISZg7/uf9B+/zEa43TTCTVHON4g=";
+            vendorHash = "sha256-rBuDl7XafndFajsyUEdn0NLoAJR9gsB2HbXQVPrktO0=";
             flags = [ "-trimpath" ];
             ldflags = [
               "-s"
