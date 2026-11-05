@@ -1,0 +1,63 @@
+# How far this fork is behind upstream: job summary plus one issue kept up to date.
+name: Upstream drift
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  push:
+    branches:
+      - master
+      - 'base/**'
+  workflow_dispatch:
+
+permissions:
+  actions: write # re-enable this workflow, see below
+  contents: read
+  issues: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  UPSTREAM: martinbaillie/vault-plugin-secrets-github
+  ISSUE_TITLE: Upstream drift
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          set -euo pipefail
+          branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          # Upstream's view: ahead_by = commits we lack, behind_by = our own commits.
+          compare=$(gh api "repos/$UPSTREAM/compare/${GITHUB_REPOSITORY/\//:}:$branch...master")
+          latest=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
+          ours=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // "none"')
+          status="on the latest upstream release"
+          [ "${ours%-mb.*}" = "$latest" ] || status="**behind the latest upstream release**"
+
+          {
+            echo "Refreshed by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Our release | \`$ours\` ($status) |"
+            echo "| Latest upstream release | \`$latest\` |"
+            echo "| Upstream commits we lack | $(jq .ahead_by <<<"$compare") |"
+            echo "| Our commits on \`$branch\` | $(jq .behind_by <<<"$compare") |"
+            echo
+            echo "Upstream commits we lack:"
+            echo
+            jq -r '.commits[] | "- \(.sha[0:7]) \(.commit.author.date[0:10]) \(.commit.message | split("\n")[0])"' <<<"$compare"
+          } > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$ISSUE_TITLE\" in:title" \
+            --json number,title --jq "map(select(.title == \"$ISSUE_TITLE\"))[0].number // empty")
+          if [ -n "$issue" ]; then
+            gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --body-file report.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body-file report.md
+          fi
+
+          # GitHub turns a schedule off after 60 days without commits on a public repository.
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/upstream-drift.yml/enable"

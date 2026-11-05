@@ -4,7 +4,32 @@
 [[https://goreportcard.com/report/github.com/martinbaillie/vault-plugin-secrets-github][https://goreportcard.com/badge/github.com/martinbaillie/vault-plugin-secrets-github?status.svg]]
 [[https://github.com/martinbaillie/vault-plugin-secrets-github/releases/latest][https://img.shields.io/github/release/martinbaillie/vault-plugin-secrets-github.svg]]
 
+* This fork
+Fork of [[https://github.com/martinbaillie/vault-plugin-secrets-github][martinbaillie/vault-plugin-secrets-github]], kept as a short list of commits on top
+of an upstream tag. No upstream release carries a Go toolchain with the fix for
+CVE-2025-68121, so this fork builds its own.
+
+- *What differs*: =git log --oneline v2.3.2..HEAD=. Dependency bumps, the Go
+  toolchain in =.github/workflows/release.yml=, that release workflow (Linux
+  binaries, =SHA256SUMS=, image), the drift report and this section.
+- *Versions*: =v<upstream tag>-mb.<n>=, for example =v2.3.2-mb.1=. Vault stores the
+  plugin under this exact string, and the image tag without the =v= must match it.
+- *Drift*: the ahead/behind line on the repository page, and the issue titled
+  "Upstream drift", refreshed daily.
+- *Rebase*: the default branch takes no force push, so each upstream base gets a
+  branch, which then becomes the default:
+  #+begin_src sh
+  git fetch upstream --tags
+  git switch -c base/v2.3.3 master
+  git rebase --onto v2.3.3 v2.3.2       # drop commits upstream now has
+  git push origin base/v2.3.3
+  gh repo edit --default-branch base/v2.3.3
+  git tag v2.3.3-mb.1 && git push origin v2.3.3-mb.1
+  #+end_src
+  Then update =v2.3.2= in the first item above.
+
 * Vault Plugin Secrets GitHub                                :TOC_2_gh:noexport:
+- [[#this-fork][This fork]]
 - [[#about][About]]
   - [[#why][Why?]]
   - [[#what][What?]]
