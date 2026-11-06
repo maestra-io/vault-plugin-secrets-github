@@ -187,7 +187,7 @@ shasum -a 256 -c SHA256SUMS
 
 ** From source
 #+BEGIN_QUOTE
-NOTE: You will need at least a [[https://golang.org/dl/][Go 1.22+ toolchain]] to build this plugin from
+NOTE: You will need at least a [[https://golang.org/dl/][Go 1.27+ toolchain]] to build this plugin from
 source. Ideally you will also be in the project's Nix shell. See [[Development][Development]] for
 more.
 #+END_QUOTE
@@ -624,7 +624,7 @@ detail and where to get help.
 | GET    | /info | application/json |
 
 * Development
-This plugin is written using modern [[https://golang.org/dl/][Go]] (1.22+). Its project infrastructure
+This plugin is written using modern [[https://golang.org/dl/][Go]] (1.27+). Its project infrastructure
 supports Linux and macOS aarch64/amd64 platforms and is handled by [[https://nixos.org/][Nix]].
 
 Nix is the only pre-requisite you need to have installed. If you do not already
