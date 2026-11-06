@@ -6,12 +6,14 @@
 
 * This fork
 Fork of [[https://github.com/martinbaillie/vault-plugin-secrets-github][martinbaillie/vault-plugin-secrets-github]], kept as a short list of commits on top
-of an upstream tag. No upstream release carries a Go toolchain with the fix for
-CVE-2025-68121, so this fork builds its own.
+of an upstream tag. It builds its own binaries with a Go toolchain we pick, so a
+Go or dependency CVE is closed here without waiting for an upstream release.
 
-- *What differs*: =git log --oneline v2.3.2..HEAD=. Dependency bumps, the Go
-  toolchain in =.github/workflows/release.yml=, that release workflow (Linux
-  binaries, =SHA256SUMS=, image), the drift report and this section.
+- *What differs*: =git log --oneline v2.3.2..HEAD=. Since =v2.3.2-mb.2= that
+  includes upstream =master= up to =5d83d9b= (the fixes after =v2.3.2=, merged,
+  not rebased), plus dependency bumps, the Go toolchain in
+  =.github/workflows/release.yml=, that release workflow (Linux binaries,
+  =SHA256SUMS=, image), the drift report and this section.
 - *Versions*: =v<upstream tag>-mb.<n>=, for example =v2.3.2-mb.1=. Vault stores the
   plugin under this exact string. The image tag is the same string without the
   leading =v=: =2.3.2-mb.1=.
@@ -327,7 +329,7 @@ Vault plugin.
 # pull requests to a single repository.
 vault policy write github-only-prs -<<EOF
 path "github/token" {
-  capabilities = ["update"]
+  capabilities = ["create", "update"]
   required_parameters = ["installation_id","permissions","repository_ids"]
   allowed_parameters = {
     "installation_id" = ["987654"]
@@ -381,6 +383,8 @@ that no caching is performed so for high traffic use cases, favour
 All other parameters are optional. Omitting them results in a token that has
 access to all of the repositories and permissions that the GitHub App
 installation has.
+Sending one of them with an empty value is an error, so an empty list cannot
+get around a Vault policy that limits them.
 
 When crafting Vault policy, hyper security sensitive organisations may wish to
 favour =repository_ids= (GitHub repository IDs are immutable) instead of
@@ -493,6 +497,8 @@ that no caching is performed so for high traffic use cases, favour
 All other parameters are optional. Omitting them results in a token that has
 access to all of the repositories and permissions that the GitHub App
 installation has.
+Sending one of them with an empty value is an error, so an empty list cannot
+get around a Vault policy that limits them.
 
 When crafting Vault policy, hyper security sensitive organisations may wish to
 favour =repository_ids= (GitHub repository IDs are immutable) instead of
@@ -568,7 +574,7 @@ General CRUD operations against the configuration of the plugin.
 *** Parameters
 - =app_id= (int64) — the Application ID of the GitHub App.
 - =prv_key= (string) — a private key configured in the GitHub App. This private key must be in PEM PKCS#1 RSAPrivateKey format. It is not returned with read requests for security reasons but its presence or lack thereof is indicated.
-- =base_url= (string) — the base URL for API requests (defaults to the public GitHub API).
+- =base_url= (string) — the base URL for API requests (defaults to the public GitHub API). If a private key is already configured, =prv_key= must be sent again when =base_url= changes.
 - =exclude_repository_metadata= (bool) — reduce the verbose `repositories` array in GitHub token responses to a simple list of repository names. This significantly reduces the memory required by the plugin when used at scale.
 
 *** Examples
@@ -579,8 +585,9 @@ General CRUD operations against the configuration of the plugin.
   # Read the plugin configuration.
   vault read /github/config
 
-  # Update the plugin configuration to a GitHub Enterprise base URL.
-  vault write /github/config base_url="https://api.mygithub.org"
+  # Update the plugin configuration to a GitHub Enterprise base URL. The private
+  # key must be sent again when the base URL changes.
+  vault write /github/config base_url="https://api.mygithub.org" prv_key=@key.pem
 
   # Significantly reduce memory consumed per token.
   vault write /github/config exclude_repository_metadata=true
@@ -599,6 +606,7 @@ Prometheus/OpenMetrics formatted metrics exposition.
 *** Metrics
 In addition to standard Go metrics, the following custom metrics are exposed:
 - =vault_github_token_request_duration_seconds= — a summary of token request latency and status.
+- =vault_github_token_installations_duration_seconds= — a summary of installations request latency and status.
 - =vault_github_token_revocation_request_duration_seconds= — a summary of token revocation request latency and status.
 - =vault_github_token_build_info= — a constant with useful build information.
 
