@@ -129,16 +129,8 @@ func (b *backend) pathTokenWrite(
 		), nil
 	}
 
-	if perms, ok := d.GetOk(keyPerms); ok {
-		tokReq.Permissions = perms.(map[string]string)
-	}
-
-	if repoIDs, ok := d.GetOk(keyRepoIDs); ok {
-		tokReq.RepositoryIDs = repoIDs.([]int)
-	}
-
-	if repos, ok := d.GetOk(keyRepos); ok {
-		tokReq.Repositories = repos.([]string)
+	if err = setConstraints(d, &tokReq.tokenConstraints); err != nil {
+		return logical.ErrorResponse(err.Error()), nil
 	}
 
 	// Instrument and log the token API call, recording status, duration and
@@ -155,7 +147,7 @@ func (b *backend) pathTokenWrite(
 			"repositories", fmt.Sprint(tokReq.Repositories),
 		)
 		requestDuration.With(prometheus.Labels{
-			"success":         strconv.FormatBool(err == nil),
+			labelSuccess:      strconv.FormatBool(err == nil),
 			keyOrgName:        tokReq.OrgName,
 			keyInstallationID: fmt.Sprint(tokReq.InstallationID),
 			keyPerms:          strconv.FormatBool(len(tokReq.Permissions) > 0),

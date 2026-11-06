@@ -21,7 +21,7 @@ permissions:
 env:
   NAME: vault-plugin-secrets-github
   # Go 1.25 is out of support. Closes CVE-2025-68121 of the upstream go1.25.0 build.
-  GO_VERSION: 1.26.10
+  GO_VERSION: 1.27.3
   GOTOOLCHAIN: local
   AWS_REGION: us-east-1 # ecr-public is only callable in us-east-1
   ECR_REGISTRY: public.ecr.aws/g5f9s8a4
