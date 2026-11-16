@@ -1,0 +1,8 @@
+# Upstream lines only (identical on the upstream default branch, or written by an upstream
+# commit): upstream test fixtures / docs / vendored code, not our credentials. issues-maestra#1649
+0ee76ab625aaa0fa5fbd36074e662caf016c90b9:github/client_test.go:generic-api-key:27
+0ee76ab625aaa0fa5fbd36074e662caf016c90b9:github/client_test.go:github-app-token:26
+README.org:curl-auth-header:139
+github/client_test.go:generic-api-key:27
+github/client_test.go:github-app-token:26
+github/config_test.go:private-key:19
